@@ -1,0 +1,10 @@
+# Copy this file to terraform.tfvars and fill in your real values.
+
+# Optional: these have default values in variables.tf, but you can override them here.
+aws_region    = "us-east-1"
+project_name  = "devops-task1"
+instance_type = "t4g.micro"
+
+# Required: you must provide these values.
+my_ip    = "YOUR_PUBLIC_IP/32"
+key_name = "YOUR_AWS_KEY_PAIR_NAME"
