@@ -71,7 +71,7 @@ From the repository root:
 docker build -t barq-notes:1.0.0 ./app
 ```
 
-The image runs as UID/GID 10001 on port 8000. It includes a database-aware
+The image runs as UID/GID 10001 on port 8080. It includes a database-aware
 health check. Supply the database environment to the container. Before serving
 traffic, run `python -m flask --app src.app:create_app init-db` in a one-off
 container with the same database settings. Later deployment automation should
@@ -80,7 +80,7 @@ No database is created on app startup, and no records are reset on restart.
 Connections are opened per request, so requests can recover when the database
 returns. Connection and statement timeouts bound database waits.
 
-The future Nginx container should proxy to `http://app:8000` on a shared local
+The future Nginx container should proxy to `http://app:8080` on a shared local
 Docker network. Keep this app port unpublished in the deployment Compose file.
 
 ## API

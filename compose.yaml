@@ -43,7 +43,7 @@ services:
       context: ./app
     environment: *app-environment
     ports:
-      - "127.0.0.1:8000:8000"
+      - "127.0.0.1:8000:8080"
     depends_on:
       db-init:
         condition: service_completed_successfully

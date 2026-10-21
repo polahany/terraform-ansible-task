@@ -1,29 +1,47 @@
 # Notes API - BARQ assignment
 
-Only the application is implemented. Infrastructure folders are placeholders.
+A small Flask and PostgreSQL Notes API prepared for deployment with Terraform,
+Ansible, Docker, and Nginx.
+
+## Repository structure
 
 ```text
-compose.yaml         Local app + PostgreSQL stack
-app/                 Flask API, schema, Dockerfile and tests
-terraform/           Future AWS infrastructure
-ansible/
-  inventories/       Future generated inventory
-  group_vars/        Future configuration and Vault secrets
-  playbooks/         Future deployment playbooks
-  roles/
-    docker_engine/   Future Docker installation
-    application/     Future Nginx and app deployment
-    database/        Future PostgreSQL deployment
-    database_backup/ Future backup and restore automation
-scripts/             Future deployment workflow
+.
+|-- app/
+|   |-- src/              Flask application and database schema
+|   |-- tests/            Unit tests
+|   |-- Dockerfile        Production application image
+|   `-- README.md         Application usage and API documentation
+|-- ansible/README.md     Ansible placeholder
+|-- terraform/README.md   Terraform placeholder
+|-- scripts/README.md     Deployment scripts placeholder
+|-- docs/team-contract.md Agreed infrastructure and deployment contract
+|-- compose.yaml          Local application and PostgreSQL stack
+|-- .gitignore            Generated-file and secret exclusions
+`-- README.md
 ```
 
-Target architecture: HTTP -> Nginx container -> app container on EC2 A;
-app -> PostgreSQL container on EC2 B through its private IP.
-Only Nginx's HTTP port will be published on EC2 A. The Dockerfile's
-`EXPOSE 8000` documents the app port; it does not publish it.
+Only the application is implemented. The Terraform, Ansible, and deployment
+script folders are intentionally placeholders.
 
-For local use, run `docker compose up --build` and open
-`http://127.0.0.1:8000`. See [app/README.md](app/README.md) for API examples and
-tests. No AWS resources, Nginx configuration, deployment Compose projects,
-Terraform or Ansible implementation are included at this stage.
+## Architecture
+
+```text
+Internet -> Nginx:80 -> app:8080 -> DB_PRIVATE_IP:5432 -> PostgreSQL
+```
+
+Only Nginx will be publicly exposed in AWS. PostgreSQL will accept traffic only
+from the application instance.
+
+## Run locally
+
+```powershell
+docker compose up --build
+```
+
+Open `http://127.0.0.1:8000`. Local ports bind only to `127.0.0.1`. See
+[app/README.md](app/README.md) for API examples and tests.
+
+The repository contains example values only. Real `.env` files, private keys,
+Terraform state, Vault password files, generated inventories, and backups are
+ignored and must never be committed.

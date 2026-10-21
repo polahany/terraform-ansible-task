@@ -2,11 +2,26 @@ __pycache__/
 *.py[cod]
 .venv/
 .pytest_cache/
+.coverage
+htmlcov/
+
+# Local environment and secrets
 .env
 .env.*
 !.env.example
 *.pem
 *.key
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+.aws/
+credentials
+secrets.yml
+secrets.yaml
+*vault-password*
+
+# Terraform generated files
 *.tfstate
 *.tfstate.*
 .terraform/
@@ -14,6 +29,14 @@ __pycache__/
 *.tfvars
 !*.tfvars.example
 crash.log
+
+# Generated deployment data
 ansible/inventories/generated.*
-*vault-password*
 backups/
+*.log
+
+# Local editor and operating-system files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
