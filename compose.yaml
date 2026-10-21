@@ -1,0 +1,53 @@
+name: barq-notes-local
+
+x-app-environment: &app-environment
+  DB_HOST: db
+  DB_PORT: "5432"
+  DB_NAME: ${POSTGRES_DB:-notes}
+  DB_USER: ${POSTGRES_USER:-notes_app}
+  DB_PASSWORD: ${POSTGRES_PASSWORD:-dev-password}
+
+services:
+  db:
+    image: postgres:17.6-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-notes}
+      POSTGRES_USER: ${POSTGRES_USER:-notes_app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dev-password}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - notes-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  db-init:
+    image: barq-notes:local
+    build:
+      context: ./app
+    environment: *app-environment
+    command: ["python", "-m", "flask", "--app", "src.app:create_app", "init-db"]
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  app:
+    image: barq-notes:local
+    build:
+      context: ./app
+    environment: *app-environment
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+volumes:
+  notes-data:
