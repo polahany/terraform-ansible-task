@@ -1,0 +1,31 @@
+---
+- name: Create app directory on the server
+  ansible.builtin.file:
+    path: /opt/app
+    state: directory
+    mode: '0755'
+
+- name: Copy application source to the server
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../app/"
+    dest: /opt/app/
+    mode: '0644'
+
+- name: Build the application Docker image
+  community.docker.docker_image:
+    name: "{{ app_image }}"
+    build:
+      path: /opt/app
+    source: build
+    force_source: true
+
+- name: Deploy docker-compose for the application
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: /opt/app/docker-compose.yml
+    mode: '0644'
+
+- name: Start the application container
+  community.docker.docker_compose_v2:
+    project_src: /opt/app
+    state: present

@@ -1,0 +1,9 @@
+app_port: 8080
+app_image: barq-notes:1.0.0
+
+db_port: 5432
+db_name: notes
+db_user: notes_app
+db_password: "{{ vault_db_password }}"
+
+nginx_image: nginx:1.28.0-alpine
