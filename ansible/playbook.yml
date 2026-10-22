@@ -1,15 +1,28 @@
 ---
-- name: Install Docker on all hosts
+- name: Install Docker Engine and Docker Compose on all hosts
   hosts: all
   become: true
+  gather_facts: true
+
   roles:
-    - docker
+    - role: docker
 
 - name: Configure database
   hosts: db
   become: true
   roles:
     - database
+
+- name: Wait for database from the application host
+  hosts: app
+  gather_facts: false
+  tasks:
+    - name: Check PostgreSQL private-network readiness
+      ansible.builtin.include_role:
+        name: database
+        tasks_from: readiness
+  tags:
+    - database_readiness
 
 - name: Deploy app and Nginx
   hosts: app

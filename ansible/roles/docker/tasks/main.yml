@@ -1,0 +1,53 @@
+
+---
+# 1. Install required dependencies
+- name: Install prerequisites
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - python3-debian
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+# 2. Configure Docker's official repository and signing key
+- name: Add Docker repository
+  ansible.builtin.deb822_repository:
+    name: docker
+    types: [deb]
+    uris: "{{ docker_apt_repository_url }}"
+    suites: "{{ ansible_distribution_release }}"
+    components: [stable]
+    architectures: ["{{ docker_apt_architecture }}"]
+    signed_by: "{{ docker_apt_key_url }}"
+    state: present
+  register: docker_repository
+
+# 3. Update APT when the repository changes
+- name: Update APT cache
+  ansible.builtin.apt:
+    update_cache: true
+  when: docker_repository.changed
+
+# 4. Install Docker and Docker Compose
+- name: Install Docker
+  ansible.builtin.apt:
+    name: "{{ docker_packages }}"
+    state: present
+
+# 5. Start Docker and enable it on boot
+- name: Start Docker
+  ansible.builtin.service:
+    name: docker
+    state: started
+    enabled: true
+
+# 6. Verify Docker Engine
+- name: Verify Docker
+  ansible.builtin.command: docker info
+  changed_when: false
+
+# 7. Verify Docker Compose
+- name: Verify Docker Compose
+  ansible.builtin.command: docker compose version
+  changed_when: false

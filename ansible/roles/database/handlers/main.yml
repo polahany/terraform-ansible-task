@@ -1,0 +1,11 @@
+---
+- name: Restart PostgreSQL Compose project
+  community.docker.docker_compose_v2:
+    project_src: "{{ postgres_project_directory }}"
+    project_name: "{{ postgres_compose_project_name }}"
+    state: present
+    pull: missing
+    recreate: always
+    remove_orphans: true
+    wait: true
+    wait_timeout: "{{ postgres_compose_wait_timeout }}"
