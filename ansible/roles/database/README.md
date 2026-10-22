@@ -3,7 +3,8 @@
 This role deploys the pinned PostgreSQL container on the database EC2 host. It
 formats and mounts the single attached non-root EBS disk, binds PostgreSQL only
 to the database private IP, initializes a dedicated application user/database,
-and verifies container health and application credentials.
+verifies container health and application credentials, and configures daily
+database backups with retention.
 
 ## Required variables
 
@@ -53,6 +54,46 @@ Before the application is deployed, `playbook.yml` runs the role's
 can reach the PostgreSQL private address and port rather than merely checking
 connectivity locally on the database host.
 
+## Backup and restore
+
+The role installs a persistent systemd timer named
+`barq-postgres-backup.timer`. It runs once per day at 02:00 UTC, with up to ten
+minutes of randomized delay. `Persistent=true` causes a missed run to execute
+after the database host next starts.
+
+Backups are compressed PostgreSQL custom archives stored in
+`/srv/barq-postgresql/backups`. This is on the attached EBS filesystem and is a
+sibling of the bind-mounted database data directory, so the archives do not
+depend on the container writable layer. Files are created atomically with mode
+`0600`, validated with `pg_restore --list`, and deleted after seven days by
+default. The retention period and schedule are configurable in
+`defaults/main.yml`.
+
+Both scripts wait for PostgreSQL readiness through the local container socket.
+The Ansible playbook separately checks the database private address from the
+application host before deploying the application, covering readiness across
+the two-host boundary.
+
+Create and validate a backup manually:
+
+```bash
+sudo /usr/local/sbin/barq-postgres-backup
+sudo systemctl status barq-postgres-backup.timer
+sudo systemctl list-timers barq-postgres-backup.timer
+```
+
+Restore an archive only during a maintenance or isolated test window because
+the operation replaces the whole application database:
+
+```bash
+sudo /usr/local/sbin/barq-postgres-restore \
+  /srv/barq-postgresql/backups/barq-postgres-YYYYMMDDTHHMMSS.NNNNNNNNNZ.dump
+```
+
+Before changing the database, the restore script validates the selected
+archive and creates a timestamped `pre-restore` safety backup. Backup and
+restore share a file lock so they cannot run concurrently.
+
 ## Run and verify
 
 The common Docker role must run before this role:
@@ -69,3 +110,16 @@ ansible-playbook \
 Run the playbook a second time and confirm the database host reports no
 unnecessary changes. Do not use `docker compose down --volumes` during
 persistence testing.
+
+The repository-level destructive workflow test creates a note, backs up the
+database, deletes the note, restores the archive, verifies the note through the
+application host, and removes the test note:
+
+```bash
+export SSH_KEY="$HOME/.ssh/barq-task1-polah"
+bash scripts/test_backup_restore.sh
+```
+
+Run this test only against an isolated assignment environment. Writes made
+after the test backup are intentionally rolled back by the full-database
+restore.
