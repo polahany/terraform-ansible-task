@@ -1,102 +1,53 @@
+
 ---
-- name: Verify that the Docker role is running on supported Ubuntu hosts
-  ansible.builtin.assert:
-    that:
-      - ansible_distribution == "Ubuntu"
-      - ansible_architecture in docker_apt_architecture_map
-    fail_msg: >-
-      This role supports Ubuntu on amd64, arm64, or armhf. Detected
-      {{ ansible_distribution }} on {{ ansible_architecture }}.
-
-- name: Gather installed package facts
-  ansible.builtin.package_facts:
-    manager: apt
-
-- name: Remove packages that conflict with Docker Engine
+# 1. Install required dependencies
+- name: Install prerequisites
   ansible.builtin.apt:
-    name: >-
-      {{
-        docker_conflicting_packages
-        | intersect(ansible_facts.packages.keys() | list)
-      }}
-    state: absent
-    purge: false
-  when: >-
-    (
-      docker_conflicting_packages
-      | intersect(ansible_facts.packages.keys() | list)
-      | length
-    ) > 0
-
-- name: Install packages required for the Docker apt repository
-  ansible.builtin.apt:
-    name: "{{ docker_prerequisite_packages }}"
+    name:
+      - ca-certificates
+      - python3-debian
     state: present
     update_cache: true
     cache_valid_time: 3600
 
-- name: Create the apt keyring directory
-  ansible.builtin.file:
-    path: /etc/apt/keyrings
-    state: directory
-    owner: root
-    group: root
-    mode: "0755"
-
-- name: Install Docker's official apt signing key
-  ansible.builtin.get_url:
-    url: "{{ docker_apt_key_url }}"
-    dest: "{{ docker_apt_key_path }}"
-    owner: root
-    group: root
-    mode: "0644"
-
-- name: Configure Docker's official apt repository
+# 2. Configure Docker's official repository and signing key
+- name: Add Docker repository
   ansible.builtin.deb822_repository:
     name: docker
-    types:
-      - deb
-    uris:
-      - "{{ docker_apt_repository_url }}"
-    suites:
-      - "{{ ansible_distribution_release }}"
-    components:
-      - "{{ docker_apt_release_channel }}"
-    architectures:
-      - "{{ docker_apt_architecture }}"
-    signed_by: "{{ docker_apt_key_path }}"
+    types: [deb]
+    uris: "{{ docker_apt_repository_url }}"
+    suites: "{{ ansible_distribution_release }}"
+    components: [stable]
+    architectures: ["{{ docker_apt_architecture }}"]
+    signed_by: "{{ docker_apt_key_url }}"
     state: present
-    enabled: true
-  register: docker_apt_repository
+  register: docker_repository
 
-- name: Update the apt cache after configuring the Docker repository
+# 3. Update APT when the repository changes
+- name: Update APT cache
   ansible.builtin.apt:
     update_cache: true
-  when: docker_apt_repository.changed
+  when: docker_repository.changed
 
-- name: Install Docker Engine and Docker Compose
+# 4. Install Docker and Docker Compose
+- name: Install Docker
   ansible.builtin.apt:
     name: "{{ docker_packages }}"
     state: present
-  notify: Restart Docker
 
-- name: Enable and start Docker
+# 5. Start Docker and enable it on boot
+- name: Start Docker
   ansible.builtin.service:
     name: docker
     state: started
     enabled: true
 
-- name: Verify that the Docker daemon responds
-  ansible.builtin.command:
-    argv:
-      - docker
-      - info
+# 6. Verify Docker Engine
+- name: Verify Docker
+  ansible.builtin.command: docker info
   changed_when: false
 
-- name: Verify that the Docker Compose plugin is available
-  ansible.builtin.command:
-    argv:
-      - docker
-      - compose
-      - version
+# 7. Verify Docker Compose
+- name: Verify Docker Compose
+  ansible.builtin.command: docker compose version
   changed_when: false
