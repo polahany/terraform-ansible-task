@@ -20,6 +20,9 @@ credentials
 secrets.yml
 secrets.yaml
 *vault-password*
+*vault_pass*
+.vault_pass*
+ansible/group_vars/all/vault.yml
 
 # Terraform generated files
 *.tfstate
@@ -27,11 +30,13 @@ secrets.yaml
 .terraform/
 *.tfplan
 *.tfvars
+*.tfvars.json
 !*.tfvars.example
 crash.log
 
 # Generated deployment data
 ansible/inventories/generated.*
+generated/
 backups/
 *.log
 
