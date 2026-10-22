@@ -1,0 +1,7 @@
+---
+nginx_directory: /opt/nginx
+nginx_compose_file: "{{ nginx_directory }}/docker-compose.yml"
+nginx_config_file: "{{ nginx_directory }}/nginx.conf"
+nginx_container_name: nginx
+nginx_image: nginx:1.28.0-alpine
+nginx_port: 80
