@@ -72,16 +72,17 @@ docker build -t barq-notes:1.0.0 ./app
 ```
 
 The image runs as UID/GID 10001 on port 8080. It includes a database-aware
-health check. Supply the database environment to the container. Before serving
-traffic, run `python -m flask --app src.app:create_app init-db` in a one-off
-container with the same database settings. Later deployment automation should
-wait for PostgreSQL before running this command and starting the application.
+health check. Supply the database environment to the container. The deployment
+automation waits for PostgreSQL and runs
+`python -m flask --app src.app:create_app init-db` in the app container with the
+same database settings before serving traffic.
 No database is created on app startup, and no records are reset on restart.
 Connections are opened per request, so requests can recover when the database
 returns. Connection and statement timeouts bound database waits.
 
-The future Nginx container should proxy to `http://app:8080` on a shared local
-Docker network. Keep this app port unpublished in the deployment Compose file.
+The deployed Nginx container proxies to `http://app:8080` on the shared
+`frontend` Docker network. The app port is intentionally unpublished on the
+application host; only Nginx publishes port 80.
 
 ## API
 
@@ -116,8 +117,9 @@ python -m unittest discover -s tests -v
 
 Tests use mocked database connections for API validation, parameterized SQL,
 response codes and database failures. They do not establish real PostgreSQL
-connectivity or prove container operation. Infrastructure, persistence and
-backup/restore validation belong to the later deployment stage.
+connectivity or prove container operation. The deployment smoke test validates
+health plus basic create/read/delete behavior; backup and restore are separate
+operator procedures documented in the root README.
 
 References: [Flask deployment](https://flask.palletsprojects.com/en/stable/deploying/gunicorn/)
 and [Psycopg usage](https://www.psycopg.org/psycopg3/docs/basic/usage.html).

@@ -1,222 +1,252 @@
-# Notes API - BARQ assignment
+# BARQ Notes API deployment
 
-A small Flask and PostgreSQL Notes API prepared for deployment with Terraform,
-Ansible, Docker, and Nginx.
+This repository is a repeatable deployment of a small Flask Notes API on AWS.
+Terraform creates the AWS network, security groups, two Ubuntu ARM64 EC2
+instances, and one EBS data volume per instance. Ansible installs Docker,
+configures PostgreSQL on the database host, builds and runs the application on
+the application host, and places Nginx in front of it.
 
-## Repository structure
-
-```text
-.
-|-- app/
-|   |-- src/              Flask application and database schema
-|   |-- tests/            Unit tests
-|   |-- Dockerfile        Production application image
-|   `-- README.md         Application usage and API documentation
-|-- ansible/              Docker installation playbook and role
-|-- terraform/            AWS networking, EC2, and EBS infrastructure
-|-- scripts/README.md     Deployment scripts placeholder
-|-- docs/team-contract.md Agreed infrastructure and deployment contract
-|-- compose.yaml          Local application and PostgreSQL stack
-|-- .gitignore            Generated-file and secret exclusions
-`-- README.md
-```
-
-Terraform provisions the AWS infrastructure. The current Ansible playbook
-installs and verifies Docker Engine and Docker Compose on both EC2 instances.
-Deployment of PostgreSQL, the application, and Nginx will be added separately.
+This is a lab-sized, single-region deployment, not a high-availability or
+production security design.
 
 ## Architecture
 
+```mermaid
+flowchart LR
+    Client[Internet client] -->|TCP 80| N[Nginx container\napp EC2]
+    N -->|Docker network\napp:8080| A[Flask + Gunicorn\napp container]
+    A -->|TCP 5432\nprivate IP only| P[PostgreSQL container\ndb EC2]
+    P --- V[(Dedicated EBS volume)]
+    A --- AV[(Dedicated EBS volume)]
+    Admin[Operator workstation] -->|SSH 22 from my_ip/32| N
+    Admin -->|SSH 22 from my_ip/32| P
+```
+
+Only the application host accepts HTTP. PostgreSQL accepts port 5432 only
+from the application security group. SSH is restricted to the public CIDR in
+`terraform/terraform.tfvars`. The app image is built on the application EC2
+host from the committed [app/Dockerfile](app/Dockerfile), not pulled from a
+registry.
+
+## Repository contents
+
 ```text
-Internet -> Nginx:80 -> app:8080 -> DB_PRIVATE_IP:5432 -> PostgreSQL
+terraform/                 AWS infrastructure and outputs
+ansible/                   playbook, group variables, roles, templates
+app/                       Flask API, tests, and versioned Dockerfile
+compose.yaml               local development stack
+scripts/deploy.sh          end-to-end provision, configure, and smoke test
+scripts/destroy.sh         reviewed and confirmed Terraform destroy
+scripts/generate_inventory.py
+docs/team-contract.md      project assumptions and service contract
 ```
 
-Only Nginx will be publicly exposed in AWS. PostgreSQL will accept traffic only
-from the application instance.
+## Prerequisites
 
-## Run locally
+Run the deployment from Linux, macOS, or WSL2. The commands below assume a
+bash shell and the repository root as the current directory.
 
-```powershell
-docker compose up --build
-```
+Install these tools and make sure they are on `PATH`:
 
-Open `http://127.0.0.1:8000`. Local ports bind only to `127.0.0.1`. See
-[app/README.md](app/README.md) for API examples and tests.
+- AWS CLI v2, authenticated to the target account with an IAM user or role
+- Terraform >= 1.5
+- Ansible >= 2.15 and Python 3
+- `ansible-galaxy`, `ansible-vault`, `ssh`, `ssh-keygen`, and `curl`
+- Docker and Docker Compose (only required for local development)
 
-## Test the Terraform and Ansible workflow from WSL2
+The AWS identity must be allowed to create VPC, subnet, route table, security
+group, EC2, EBS, and related resources in the selected region. The default
+Terraform values target `us-east-1` and the Ubuntu 24.04 ARM64 AMI in
+`terraform/variables.tf`; for another region, provide an AMI ID for that
+region.
 
-### Prerequisites
+## A. Prepare AWS credentials
 
-- Terraform, Ansible, and the AWS CLI are installed in WSL2.
-- The AWS CLI is authenticated with an IAM user or role, not the root user.
-- `terraform/terraform.tfvars` contains the AWS region, project name, current
-  public IP CIDR, instance type, AMI ID, and the name of an existing AWS key
-  pair. This file is ignored by Git.
-- The private half of that AWS key pair is available only on the local machine.
-
-From the repository root, select the AWS profile and confirm its identity:
+Configure the AWS CLI using your organization-approved method, then select
+the target profile and region:
 
 ```bash
-cd "/mnt/d/programming/barq intern/barq-intern-assignment-1"
-
-# Renew the temporary login first if the barq-lab session has expired:
-# aws login --profile barq-lab --region us-east-1
-
-export AWS_PROFILE=barq-terraform
+export AWS_PROFILE=my-aws-profile
 export AWS_REGION=us-east-1
-export SSH_KEY="$HOME/.ssh/barq-task1-polah"
-
 aws sts get-caller-identity
+```
+
+The identity command must succeed and show the account where the lab resources
+should be created. If you use the default AWS profile, omit `AWS_PROFILE`.
+
+## B. Create or select an SSH key pair
+
+Create an EC2 key pair in the same region, or reuse an existing one. The
+private key is downloaded once and must remain outside Git:
+
+```bash
+aws ec2 create-key-pair \
+  --key-name barq-notes-key \
+  --query KeyMaterial \
+  --output text > "$HOME/.ssh/barq-notes-key.pem"
+chmod 600 "$HOME/.ssh/barq-notes-key.pem"
+export SSH_KEY="$HOME/.ssh/barq-notes-key.pem"
 test -f "$SSH_KEY"
 ```
 
-Install the required Ansible collection and initialize Terraform:
+If the key already exists, set `SSH_KEY` to its matching private key.
+`key_name` below is the AWS key-pair name, not the local filename.
 
-```bash
-ansible-galaxy collection install -r ansible/requirements.yml
+## C. Configure Terraform
 
-terraform -chdir=terraform init
-terraform -chdir=terraform fmt -check -recursive
-terraform -chdir=terraform validate
-```
-
-Use the current public IPv4 address for the SSH security-group rule, then
-create and review a saved Terraform plan:
+Find the public IPv4 address of the workstation that will use SSH:
 
 ```bash
 MY_IP="$(curl -4 -fsS https://checkip.amazonaws.com | tr -d '\r\n')"
-
-terraform -chdir=terraform plan \
-  -input=false \
-  -var="my_ip=${MY_IP}/32" \
-  -out=deploy.tfplan
-
-terraform -chdir=terraform show deploy.tfplan
-terraform -chdir=terraform apply deploy.tfplan
+printf 'Use this value for my_ip: %s/32\n' "$MY_IP"
+cp terraform/terraform.tfvars.example terraform/terraform.tfvars
 ```
 
-Confirm that applying the same Terraform configuration again would make no
-changes:
+Open `terraform/terraform.tfvars` and replace the placeholders. At minimum it
+should contain:
+
+```hcl
+aws_region    = "us-east-1"
+project_name  = "barq-notes"
+instance_type = "t4g.micro"
+my_ip         = "203.0.113.10/32"
+key_name      = "barq-notes-key"
+```
+
+Replace the example IP and key name. Do not commit this file; it is ignored by
+Git. `my_ip` must be a CIDR, normally `/32`.
+
+## D. Create encrypted Ansible secrets
+
+Create the encrypted vault file. The deployment script installs the pinned
+Ansible collections automatically, so no separate collection installation is
+required:
 
 ```bash
-terraform -chdir=terraform plan \
-  -input=false \
-  -detailed-exitcode \
-  -var="my_ip=${MY_IP}/32"
-
-TF_EXIT=$?
-echo "Terraform detailed exit code: $TF_EXIT"
-test "$TF_EXIT" -eq 0
+cp ansible/group_vars/all/vault.yml.example ansible/group_vars/all/vault.yml
+$EDITOR ansible/group_vars/all/vault.yml
+ansible-vault encrypt ansible/group_vars/all/vault.yml
 ```
 
-Exit code `0` means the infrastructure is unchanged, `2` means Terraform found
-changes, and `1` means the plan failed.
+Replace both placeholder values before encrypting with different random
+passwords, each at least 16 characters. Keep the Vault
+password in a password manager. To avoid an interactive prompt during deploy,
+set `ANSIBLE_VAULT_PASSWORD_FILE` to a protected file outside this repository.
 
-Read the Terraform outputs and wait for both Ubuntu instances to finish
-starting:
+## E. Deploy with the deployment script
+
+`scripts/deploy.sh` is the canonical deployment entry point. Do not manually
+run Terraform and Ansible commands for a normal deployment; the script already
+performs the complete workflow:
+
+1. Checks the required commands, AWS credentials, SSH key, and encrypted Vault
+   file.
+2. Initializes and validates Terraform.
+3. Creates and applies the Terraform plan.
+4. Generates `generated/inventory.ini` from Terraform outputs.
+5. Waits for SSH and cloud-init on both EC2 instances.
+6. Installs the pinned Ansible collections.
+7. Runs the Ansible playbook to install Docker and deploy PostgreSQL, the app,
+   and Nginx.
+8. Runs health and create/read/delete API smoke tests.
+
+Set the SSH key path and run the script from the repository root:
+
+```bash
+export SSH_KEY="$HOME/.ssh/barq-notes-key.pem"
+bash scripts/deploy.sh
+```
+
+The script prompts for the Vault password unless
+`ANSIBLE_VAULT_PASSWORD_FILE` is set. It is safe to run again after a
+successful deployment; Terraform and Ansible should converge without
+unnecessary changes.
+
+The generated inventory is `generated/inventory.ini` and is ignored by Git.
+After deployment, verify the result with the API endpoint:
 
 ```bash
 APP_IP="$(terraform -chdir=terraform output -raw app_public_ip)"
+curl "http://${APP_IP}/health"
+curl "http://${APP_IP}/notes"
+```
+
+For a repeatability check, run `bash scripts/deploy.sh` a second time and
+confirm that it completes successfully without unexpected infrastructure or
+configuration changes. The script owns the inventory and deployment sequence.
+
+## Backup and restore
+
+Back up PostgreSQL before any destructive operation and keep the backup outside
+the repository. The backup uses PostgreSQL custom format:
+
+```bash
+mkdir -p backups
 DB_IP="$(terraform -chdir=terraform output -raw db_public_ip)"
-DB_PRIVATE_IP="$(terraform -chdir=terraform output -raw db_private_ip)"
-
-printf 'App public IP: %s\nDB public IP: %s\nDB private IP: %s\n' \
-  "$APP_IP" "$DB_IP" "$DB_PRIVATE_IP"
-
-for HOST in "$APP_IP" "$DB_IP"; do
-  ssh-keygen -R "$HOST" >/dev/null 2>&1 || true
-
-  until ssh \
-    -o BatchMode=yes \
-    -o ConnectTimeout=5 \
-    -o StrictHostKeyChecking=accept-new \
-    -i "$SSH_KEY" \
-    "ubuntu@$HOST" true
-  do
-    echo "Waiting for SSH on $HOST..."
-    sleep 10
-  done
-
-  ssh -i "$SSH_KEY" "ubuntu@$HOST" "sudo cloud-init status --wait"
-done
+BACKUP="backups/notes-$(date +%Y%m%d-%H%M%S).dump"
+ssh -i "$SSH_KEY" "ubuntu@$DB_IP" \
+  'sudo docker exec postgres sh -c '\''PGPASSWORD="$(cat /run/secrets/postgres_app_password)" pg_dump -U notes_app -d notes --format=custom'\'' ' \
+  > "$BACKUP"
+test -s "$BACKUP"
 ```
 
-Generate the ignored Ansible inventory from the Terraform outputs:
+Restore into the existing `notes` database after deployment. This replaces
+objects in that database, so verify the backup and target first:
 
 ```bash
-mkdir -p ansible/inventories
-
-cat > ansible/inventories/generated.ini <<EOF
-[app]
-app-server ansible_host=${APP_IP}
-
-[db]
-db-server ansible_host=${DB_IP}
-
-[all:vars]
-ansible_user=ubuntu
-ansible_ssh_private_key_file=${SSH_KEY}
-ansible_python_interpreter=/usr/bin/python3
-EOF
+DB_IP="$(terraform -chdir=terraform output -raw db_public_ip)"
+cat "$BACKUP" | ssh -i "$SSH_KEY" "ubuntu@$DB_IP" \
+  'sudo docker exec -i postgres sh -c '\''PGPASSWORD="$(cat /run/secrets/postgres_app_password)" pg_restore -U notes_app -d notes --clean --if-exists --no-owner'\'' '
 ```
 
-Explicitly select `ansible.cfg` because Ansible may ignore configuration files
-inside a world-writable Windows-mounted directory:
+Production systems should use encrypted off-host backups, retention, restore
+testing, monitoring, and managed database snapshots.
+
+## Cleanup
+
+Save any required backup first. The destroy script requires two explicit
+confirmations, creates a destroy plan, displays it, and applies that exact
+plan:
 
 ```bash
-export ANSIBLE_CONFIG="$PWD/ansible/ansible.cfg"
-INVENTORY="$PWD/ansible/inventories/generated.ini"
-
-ansible-inventory -i "$INVENTORY" --graph
-ansible all -i "$INVENTORY" -m ping
-ansible-playbook -i "$INVENTORY" ansible/playbook.yml --diff
+bash scripts/destroy.sh
 ```
 
-Verify Docker on both instances:
+Do not delete Terraform state before destruction succeeds. The AWS key-pair
+registration and local private key are not managed by this Terraform code and
+are not removed by cleanup.
+
+## Local development
+
+With Docker installed, run the local stack without AWS:
 
 ```bash
-ansible all -i "$INVENTORY" --become -m command -a "docker --version"
-ansible all -i "$INVENTORY" --become -m command -a "docker compose version"
-ansible all -i "$INVENTORY" --become -m command -a "systemctl is-active docker"
+docker compose up --build
+curl http://127.0.0.1:8000/health
+docker compose down
 ```
 
-Ad-hoc `command` checks are displayed as `CHANGED` because Ansible cannot infer
-whether an arbitrary command modifies the host. Successful return codes and an
-`active` Docker service confirm the checks passed.
+The local stack publishes only localhost ports and uses development defaults.
+See [app/README.md](app/README.md) for API examples and tests.
 
-Run the playbook a second time to test idempotency:
+## Known limitations
 
-```bash
-ansible-playbook -i "$INVENTORY" ansible/playbook.yml --diff
-```
+- Two EC2 instances and one public subnet are a single point of failure; there
+  is no load balancer, autoscaling, multi-AZ layout, TLS, or domain setup.
+- The API has no authentication or authorization and should not hold sensitive
+  data.
+- The application image is built on the target host rather than pulled from a
+  registry, so deployments are slower and do not provide registry provenance.
+- The AMI ID is region-specific and must be updated when deploying elsewhere.
+- Terraform state is local. Use remote encrypted state with locking for shared
+  or production use.
+- Backups are operator-run commands, not scheduled jobs or managed snapshots.
+- The EBS data volumes use `nofail`; backup and restore remain the operator's
+  responsibility before `destroy.sh` is run.
 
-The second playbook recap should report `changed=0` and `failed=0` for both
-hosts.
+## Security and generated files
 
-### Destroy the AWS infrastructure after testing
-
-Create and review a saved destruction plan:
-
-```bash
-terraform -chdir=terraform plan \
-  -destroy \
-  -input=false \
-  -out=destroy.tfplan
-
-terraform -chdir=terraform show destroy.tfplan
-terraform -chdir=terraform apply destroy.tfplan
-```
-
-Confirm that Terraform has no remaining managed resources:
-
-```bash
-terraform -chdir=terraform state list
-```
-
-This command should produce no output. Do not delete the Terraform state before
-the destroy operation succeeds. The local SSH key and AWS key-pair registration
-can be retained for later test runs and do not incur an AWS charge.
-
-The repository contains example values only. Real `.env` files, private keys,
-Terraform state, Vault password files, generated inventories, and backups are
-ignored and must never be committed.
+Never commit AWS credentials, SSH private keys, `.env` files, Terraform state,
+Terraform plans, generated inventories, Vault password files, encrypted vault
+content, or database backups. The repository `.gitignore` excludes these
+artifacts; verify `git status` before committing.

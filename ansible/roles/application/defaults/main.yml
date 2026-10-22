@@ -1,0 +1,12 @@
+---
+app_directory: /opt/app
+app_source_directory: "{{ app_directory }}/src"
+app_compose_file: "{{ app_directory }}/docker-compose.yml"
+app_container_name: app
+app_image: barq-notes:1.0.0
+app_port: 8080
+app_build_files:
+  - .dockerignore
+  - Dockerfile
+  - requirements.txt
+app_compose_wait_timeout: 180

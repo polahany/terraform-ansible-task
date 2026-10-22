@@ -1,23 +1,23 @@
 ---
 - name: Create nginx directory on the server
   ansible.builtin.file:
-    path: /opt/nginx
+    path: "{{ nginx_directory }}"
     state: directory
     mode: '0755'
 
 - name: Deploy nginx configuration
   ansible.builtin.template:
     src: nginx.conf.j2
-    dest: /opt/nginx/nginx.conf
+    dest: "{{ nginx_config_file }}"
     mode: '0644'
 
 - name: Deploy docker-compose for nginx
   ansible.builtin.template:
     src: docker-compose.yml.j2
-    dest: /opt/nginx/docker-compose.yml
+    dest: "{{ nginx_compose_file }}"
     mode: '0644'
 
 - name: Start nginx container
   community.docker.docker_compose_v2:
-    project_src: /opt/nginx
+    project_src: "{{ nginx_directory }}"
     state: present
