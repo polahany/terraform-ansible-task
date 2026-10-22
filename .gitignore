@@ -20,6 +20,7 @@ credentials
 secrets.yml
 secrets.yaml
 *vault-password*
+ansible/group_vars/all/vault.yml
 
 # Terraform generated files
 *.tfstate

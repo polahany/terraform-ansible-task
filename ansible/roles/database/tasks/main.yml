@@ -1,0 +1,163 @@
+---
+- name: Validate database variables
+  ansible.builtin.assert:
+    that:
+      - vault_db_admin_password is defined
+      - >-
+        vault_db_admin_password | default("") | length
+        >= postgres_minimum_password_length
+      - vault_db_password is defined
+      - >-
+        vault_db_password | default("") | length
+        >= postgres_minimum_password_length
+      - database_bind_address not in postgres_disallowed_bind_addresses
+    fail_msg: >-
+      Define both Vault passwords and a database private IP before running
+      the database role.
+  no_log: true
+
+- name: Discover the non-root data disk
+  ansible.builtin.shell: |
+    root_source="$(readlink -f "$(findmnt -n -o SOURCE /)")"
+    root_parent="$(lsblk -no PKNAME "$root_source")"
+
+    if test -n "$root_parent"; then
+      root_disk="/dev/$root_parent"
+    else
+      root_disk="$root_source"
+    fi
+
+    lsblk -dpno NAME,TYPE | awk -v root="$root_disk" \
+      '$2 == "disk" && $1 != root { print $1 }'
+  args:
+    executable: /bin/bash
+  register: postgres_discovered_devices
+  changed_when: false
+  when: postgres_data_device | length == 0
+
+- name: Require one attached data disk
+  ansible.builtin.assert:
+    that:
+      - >-
+        postgres_discovered_devices.stdout_lines | length
+        == postgres_expected_data_disk_count
+    fail_msg: >-
+      Expected one non-root data disk. Set postgres_data_device explicitly
+      if this host has multiple additional disks.
+  when: postgres_data_device | length == 0
+
+- name: Select the PostgreSQL data disk
+  ansible.builtin.set_fact:
+    postgres_effective_data_device: >-
+      {{ postgres_data_device
+         if postgres_data_device | length > 0
+         else postgres_discovered_devices.stdout_lines | first }}
+
+- name: Create the PostgreSQL data filesystem
+  community.general.filesystem:
+    dev: "{{ postgres_effective_data_device }}"
+    fstype: "{{ postgres_filesystem_type }}"
+    force: false
+
+- name: Mount the PostgreSQL data volume
+  ansible.posix.mount:
+    path: "{{ postgres_data_mount_path }}"
+    src: "{{ postgres_effective_data_device }}"
+    fstype: "{{ postgres_filesystem_type }}"
+    opts: defaults,nofail
+    state: mounted
+
+- name: Create the PostgreSQL data directory
+  ansible.builtin.file:
+    path: "{{ postgres_data_directory }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "{{ postgres_data_directory_mode }}"
+
+- name: Create the PostgreSQL project directory
+  ansible.builtin.file:
+    path: "{{ postgres_project_directory }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "{{ postgres_project_directory_mode }}"
+
+- name: Render the PostgreSQL Compose file
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ postgres_project_directory }}/docker-compose.yml"
+    owner: root
+    group: root
+    mode: "{{ postgres_compose_file_mode }}"
+  notify: Restart PostgreSQL Compose project
+
+- name: Render the database initialization script
+  ansible.builtin.template:
+    src: init-app.sh.j2
+    dest: >-
+      {{ postgres_project_directory }}/{{ postgres_init_script_filename }}
+    owner: root
+    group: root
+    mode: "{{ postgres_init_script_mode }}"
+
+- name: Write protected database password files
+  ansible.builtin.copy:
+    content: "{{ item.value }}\n"
+    dest: "{{ postgres_project_directory }}/{{ item.name }}"
+    owner: root
+    group: root
+    mode: "{{ postgres_secret_file_mode }}"
+  loop:
+    - name: postgres-admin-password
+      value: "{{ vault_db_admin_password }}"
+    - name: postgres-app-password
+      value: "{{ vault_db_password }}"
+  no_log: true
+
+- name: Apply pending PostgreSQL configuration changes
+  ansible.builtin.meta: flush_handlers
+
+- name: Start the PostgreSQL Compose project
+  community.docker.docker_compose_v2:
+    project_src: "{{ postgres_project_directory }}"
+    project_name: "{{ postgres_compose_project_name }}"
+    state: present
+    pull: missing
+    remove_orphans: true
+    wait: true
+    wait_timeout: "{{ postgres_compose_wait_timeout }}"
+
+- name: Reconcile the application database and user
+  community.docker.docker_container_exec:
+    container: "{{ postgres_container_name }}"
+    user: postgres
+    argv:
+      - /bin/sh
+      - -ec
+      - >-
+        /docker-entrypoint-initdb.d/{{ postgres_init_script_filename }}
+  changed_when: false
+  no_log: true
+
+- name: Verify the application database credentials
+  community.docker.docker_container_exec:
+    container: "{{ postgres_container_name }}"
+    user: postgres
+    env:
+      PGPASSWORD: "{{ vault_db_password | string }}"
+    argv:
+      - psql
+      - --host
+      - "{{ postgres_healthcheck_host }}"
+      - --port
+      - "{{ db_port | string }}"
+      - --username
+      - "{{ db_user }}"
+      - --dbname
+      - "{{ db_name }}"
+      - --tuples-only
+      - --command
+      - "{{ postgres_validation_query }}"
+  changed_when: false
+  no_log: true

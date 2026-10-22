@@ -1,0 +1,12 @@
+---
+- name: Wait for PostgreSQL from the application host
+  ansible.builtin.wait_for:
+    host: "{{ db_host }}"
+    port: "{{ db_port }}"
+    state: started
+    connect_timeout: "{{ postgres_readiness_connect_timeout }}"
+    sleep: "{{ postgres_readiness_poll_interval }}"
+    timeout: "{{ postgres_readiness_timeout }}"
+    msg: >-
+      PostgreSQL did not become reachable at {{ db_host }}:{{ db_port }}
+      from the application host.
