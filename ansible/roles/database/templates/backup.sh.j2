@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+umask 077
+
+readonly CONTAINER={{ postgres_container_name | quote }}
+readonly ADMIN_USER={{ postgres_admin_user | quote }}
+readonly DATABASE={{ db_name | quote }}
+readonly DATA_MOUNT={{ postgres_data_mount_path | quote }}
+readonly BACKUP_DIR={{ postgres_backup_directory | quote }}
+readonly LOCK_PATH={{ postgres_backup_lock_path | quote }}
+readonly RETENTION_DAYS={{ postgres_backup_retention_days | int }}
+readonly READINESS_TIMEOUT={{ postgres_readiness_timeout | int }}
+readonly READINESS_INTERVAL={{ postgres_readiness_poll_interval | int }}
+readonly BACKUP_PREFIX=barq-postgres
+
+log() {
+  printf '%s\n' "$*" >&2
+}
+
+wait_for_postgres() {
+  local deadline=$((SECONDS + READINESS_TIMEOUT))
+
+  until docker exec --user postgres "$CONTAINER" \
+    pg_isready --quiet --username "$ADMIN_USER" --dbname "$DATABASE"; do
+    if (( SECONDS >= deadline )); then
+      log "PostgreSQL did not become ready within ${READINESS_TIMEOUT} seconds."
+      return 1
+    fi
+    sleep "$READINESS_INTERVAL"
+  done
+}
+
+if ! mountpoint --quiet "$DATA_MOUNT"; then
+  log "Required PostgreSQL data volume is not mounted: $DATA_MOUNT"
+  exit 1
+fi
+
+mkdir -p "$BACKUP_DIR"
+exec 9>"$LOCK_PATH"
+flock 9
+wait_for_postgres
+
+timestamp="$(date --utc +'%Y%m%dT%H%M%S.%NZ')"
+final_path="${BACKUP_DIR}/${BACKUP_PREFIX}-${timestamp}.dump"
+temporary_path="${BACKUP_DIR}/.${BACKUP_PREFIX}-${timestamp}.dump.tmp"
+
+cleanup() {
+  rm -f -- "$temporary_path"
+}
+trap cleanup EXIT
+
+docker exec --user postgres "$CONTAINER" \
+  pg_dump \
+    --username "$ADMIN_USER" \
+    --dbname "$DATABASE" \
+    --format custom \
+    --compress 9 >"$temporary_path"
+
+test -s "$temporary_path"
+docker exec --interactive --user postgres "$CONTAINER" \
+  pg_restore --list <"$temporary_path" >/dev/null
+
+chmod 0600 "$temporary_path"
+mv -- "$temporary_path" "$final_path"
+trap - EXIT
+
+find "$BACKUP_DIR" \
+  -maxdepth 1 \
+  -type f \
+  -name "${BACKUP_PREFIX}-*.dump" \
+  -mmin "+$((RETENTION_DAYS * 1440))" \
+  -delete
+
+printf '%s\n' "$final_path"

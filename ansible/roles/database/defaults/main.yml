@@ -40,6 +40,18 @@ postgres_init_script_mode: "0755"
 postgres_secret_file_mode: "0600"
 postgres_init_script_filename: 10-init-app.sh
 
+postgres_backup_directory: "{{ postgres_data_mount_path }}/backups"
+postgres_backup_directory_mode: "0700"
+postgres_backup_script_path: /usr/local/sbin/barq-postgres-backup
+postgres_restore_script_path: /usr/local/sbin/barq-postgres-restore
+postgres_backup_script_mode: "0750"
+postgres_backup_retention_days: 7
+postgres_backup_on_calendar: "*-*-* 02:00:00 UTC"
+postgres_backup_randomized_delay_seconds: 600
+postgres_backup_service_name: barq-postgres-backup.service
+postgres_backup_timer_name: barq-postgres-backup.timer
+postgres_backup_lock_path: /run/lock/barq-postgres-backup.lock
+
 postgres_disallowed_bind_addresses:
   - 0.0.0.0
   - "::"

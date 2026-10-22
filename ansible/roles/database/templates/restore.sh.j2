@@ -1,0 +1,110 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+umask 077
+
+readonly CONTAINER={{ postgres_container_name | quote }}
+readonly ADMIN_USER={{ postgres_admin_user | quote }}
+readonly DATABASE={{ db_name | quote }}
+readonly DATA_MOUNT={{ postgres_data_mount_path | quote }}
+readonly BACKUP_DIR={{ postgres_backup_directory | quote }}
+readonly LOCK_PATH={{ postgres_backup_lock_path | quote }}
+readonly READINESS_TIMEOUT={{ postgres_readiness_timeout | int }}
+readonly READINESS_INTERVAL={{ postgres_readiness_poll_interval | int }}
+readonly BACKUP_PREFIX=barq-postgres
+
+log() {
+  printf '%s\n' "$*" >&2
+}
+
+usage() {
+  printf 'Usage: %s BACKUP_FILE\n' "$0" >&2
+}
+
+wait_for_postgres() {
+  local deadline=$((SECONDS + READINESS_TIMEOUT))
+
+  until docker exec --user postgres "$CONTAINER" \
+    pg_isready --quiet --username "$ADMIN_USER" --dbname "$DATABASE"; do
+    if (( SECONDS >= deadline )); then
+      log "PostgreSQL did not become ready within ${READINESS_TIMEOUT} seconds."
+      return 1
+    fi
+    sleep "$READINESS_INTERVAL"
+  done
+}
+
+if (( $# != 1 )); then
+  usage
+  exit 64
+fi
+
+if ! mountpoint --quiet "$DATA_MOUNT"; then
+  log "Required PostgreSQL data volume is not mounted: $DATA_MOUNT"
+  exit 1
+fi
+
+requested_path="$1"
+if [[ ! -f "$requested_path" ]]; then
+  log "Backup file does not exist: $requested_path"
+  exit 66
+fi
+
+backup_root="$(realpath --canonicalize-existing "$BACKUP_DIR")"
+backup_path="$(realpath --canonicalize-existing "$requested_path")"
+case "$backup_path" in
+  "$backup_root"/*.dump) ;;
+  *)
+    log "Backup must be a .dump file inside $backup_root."
+    exit 65
+    ;;
+esac
+
+exec 9>"$LOCK_PATH"
+flock 9
+wait_for_postgres
+
+docker exec --interactive --user postgres "$CONTAINER" \
+  pg_restore --list <"$backup_path" >/dev/null
+
+timestamp="$(date --utc +'%Y%m%dT%H%M%S.%NZ')"
+safety_path="${BACKUP_DIR}/${BACKUP_PREFIX}-pre-restore-${timestamp}.dump"
+temporary_path="${BACKUP_DIR}/.${BACKUP_PREFIX}-pre-restore-${timestamp}.dump.tmp"
+
+cleanup() {
+  rm -f -- "$temporary_path"
+}
+trap cleanup EXIT
+
+docker exec --user postgres "$CONTAINER" \
+  pg_dump \
+    --username "$ADMIN_USER" \
+    --dbname "$DATABASE" \
+    --format custom \
+    --compress 9 >"$temporary_path"
+
+test -s "$temporary_path"
+docker exec --interactive --user postgres "$CONTAINER" \
+  pg_restore --list <"$temporary_path" >/dev/null
+chmod 0600 "$temporary_path"
+mv -- "$temporary_path" "$safety_path"
+trap - EXIT
+
+docker exec --interactive --user postgres "$CONTAINER" \
+  pg_restore \
+    --username "$ADMIN_USER" \
+    --dbname "$DATABASE" \
+    --clean \
+    --if-exists \
+    --exit-on-error \
+    --single-transaction <"$backup_path"
+
+docker exec --user postgres "$CONTAINER" \
+  psql \
+    --username "$ADMIN_USER" \
+    --dbname "$DATABASE" \
+    --tuples-only \
+    --command 'SELECT 1;' >/dev/null
+
+printf 'Restored: %s\n' "$backup_path"
+printf 'Pre-restore safety backup: %s\n' "$safety_path"
