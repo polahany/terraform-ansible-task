@@ -5,11 +5,29 @@
     state: directory
     mode: '0755'
 
-- name: Copy application source to the server
+- name: Create application source directory on the server
+  ansible.builtin.file:
+    path: /opt/app/src
+    state: directory
+    mode: '0755'
+
+- name: Copy application build files to the server
   ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../app/"
-    dest: /opt/app/
+    src: "{{ playbook_dir }}/../app/{{ item }}"
+    dest: "/opt/app/{{ item }}"
     mode: '0644'
+  loop:
+    - .dockerignore
+    - Dockerfile
+    - requirements.txt
+
+- name: Copy application source files to the server
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: /opt/app/src/
+    mode: '0644'
+  with_fileglob:
+    - "{{ playbook_dir }}/../app/src/*"
 
 - name: Build the application Docker image
   community.docker.docker_image:
@@ -29,3 +47,22 @@
   community.docker.docker_compose_v2:
     project_src: /opt/app
     state: present
+
+- name: Initialize the application database schema
+  community.docker.docker_container_exec:
+    container: app
+    argv:
+      - python
+      - -m
+      - flask
+      - --app
+      - src.app:create_app
+      - init-db
+  changed_when: false
+
+- name: Wait for the application to become healthy
+  community.docker.docker_compose_v2:
+    project_src: /opt/app
+    state: present
+    wait: true
+    wait_timeout: 180

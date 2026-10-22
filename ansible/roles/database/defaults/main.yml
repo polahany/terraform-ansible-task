@@ -1,6 +1,8 @@
 ---
 postgres_image: postgres:17.6-alpine
 postgres_container_name: postgres
+postgres_container_uid: "70"
+postgres_container_gid: "70"
 postgres_compose_project_name: barq-database
 postgres_project_directory: /opt/database
 postgres_restart_policy: unless-stopped
@@ -34,7 +36,7 @@ postgres_readiness_timeout: 120
 postgres_data_directory_mode: "0700"
 postgres_project_directory_mode: "0750"
 postgres_compose_file_mode: "0640"
-postgres_init_script_mode: "0750"
+postgres_init_script_mode: "0755"
 postgres_secret_file_mode: "0600"
 postgres_init_script_filename: 10-init-app.sh
 
