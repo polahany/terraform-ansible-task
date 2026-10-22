@@ -71,8 +71,8 @@
   ansible.builtin.file:
     path: "{{ postgres_data_directory }}"
     state: directory
-    owner: root
-    group: root
+    owner: "{{ postgres_container_uid }}"
+    group: "{{ postgres_container_gid }}"
     mode: "{{ postgres_data_directory_mode }}"
 
 - name: Create the PostgreSQL project directory
@@ -105,8 +105,8 @@
   ansible.builtin.copy:
     content: "{{ item.value }}\n"
     dest: "{{ postgres_project_directory }}/{{ item.name }}"
-    owner: root
-    group: root
+    owner: "{{ postgres_container_uid }}"
+    group: "{{ postgres_container_gid }}"
     mode: "{{ postgres_secret_file_mode }}"
   loop:
     - name: postgres-admin-password
