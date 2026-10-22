@@ -1,0 +1,51 @@
+---
+postgres_image: postgres:17.6-alpine
+postgres_container_name: postgres
+postgres_compose_project_name: barq-database
+postgres_project_directory: /opt/database
+postgres_restart_policy: unless-stopped
+postgres_compose_wait_timeout: 180
+postgres_internal_port: 5432
+postgres_stop_grace_period: 30s
+postgres_shm_size: 128mb
+
+postgres_data_device: ""
+postgres_expected_data_disk_count: 1
+postgres_data_mount_path: /srv/barq-postgresql
+postgres_data_directory: "{{ postgres_data_mount_path }}/data"
+postgres_container_data_directory: /var/lib/postgresql/data
+postgres_filesystem_type: ext4
+
+postgres_admin_user: postgres_admin
+postgres_admin_database: postgres
+postgres_minimum_password_length: 16
+postgres_validation_query: SELECT 1;
+
+postgres_healthcheck_host: 127.0.0.1
+postgres_healthcheck_interval: 5s
+postgres_healthcheck_timeout: 5s
+postgres_healthcheck_retries: 12
+postgres_healthcheck_start_period: 10s
+
+postgres_readiness_connect_timeout: 5
+postgres_readiness_poll_interval: 5
+postgres_readiness_timeout: 120
+
+postgres_data_directory_mode: "0700"
+postgres_project_directory_mode: "0750"
+postgres_compose_file_mode: "0640"
+postgres_init_script_mode: "0750"
+postgres_secret_file_mode: "0600"
+postgres_init_script_filename: 10-init-app.sh
+
+postgres_disallowed_bind_addresses:
+  - 0.0.0.0
+  - "::"
+  - 127.0.0.1
+
+database_bind_address: >-
+  {{ db_host | default(ansible_default_ipv4.address, true) }}
+
+db_port: 5432
+db_name: notes
+db_user: notes_app

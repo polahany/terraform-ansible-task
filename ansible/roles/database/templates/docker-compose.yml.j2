@@ -1,0 +1,43 @@
+name: {{ postgres_compose_project_name }}
+
+services:
+  postgres:
+    image: {{ postgres_image }}
+    container_name: {{ postgres_container_name }}
+    restart: {{ postgres_restart_policy }}
+    environment:
+      POSTGRES_USER: {{ postgres_admin_user }}
+      POSTGRES_DB: {{ postgres_admin_database }}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_admin_password
+      APP_DB_USER: {{ db_user }}
+      APP_DB_NAME: {{ db_name }}
+      APP_DB_PASSWORD_FILE: /run/secrets/postgres_app_password
+    ports:
+      - >-
+        {{ database_bind_address }}:{{ db_port }}:{{ postgres_internal_port }}
+    volumes:
+      - >-
+        {{ postgres_data_directory }}:{{ postgres_container_data_directory }}
+      - >-
+        ./{{ postgres_init_script_filename }}:/docker-entrypoint-initdb.d/{{ postgres_init_script_filename }}:ro
+    secrets:
+      - postgres_admin_password
+      - postgres_app_password
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          pg_isready -h {{ postgres_healthcheck_host }}
+          -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"
+      interval: {{ postgres_healthcheck_interval }}
+      timeout: {{ postgres_healthcheck_timeout }}
+      retries: {{ postgres_healthcheck_retries }}
+      start_period: {{ postgres_healthcheck_start_period }}
+    stop_grace_period: {{ postgres_stop_grace_period }}
+    shm_size: {{ postgres_shm_size }}
+
+secrets:
+  postgres_admin_password:
+    file: ./postgres-admin-password
+  postgres_app_password:
+    file: ./postgres-app-password

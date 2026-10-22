@@ -11,6 +11,17 @@
   roles:
     - database
 
+- name: Wait for database from the application host
+  hosts: app
+  gather_facts: false
+  tasks:
+    - name: Check PostgreSQL private-network readiness
+      ansible.builtin.include_role:
+        name: database
+        tasks_from: readiness
+  tags:
+    - database_readiness
+
 - name: Deploy app and Nginx
   hosts: app
   become: true
