@@ -12,18 +12,18 @@ Ansible, Docker, and Nginx.
 |   |-- tests/            Unit tests
 |   |-- Dockerfile        Production application image
 |   `-- README.md         Application usage and API documentation
-|-- ansible/              Docker installation playbook and role
+|-- ansible/              Two-host application and database deployment
 |-- terraform/            AWS networking, EC2, and EBS infrastructure
-|-- scripts/README.md     Deployment scripts placeholder
+|-- scripts/              Deployment and backup/restore workflow tests
 |-- docs/team-contract.md Agreed infrastructure and deployment contract
 |-- compose.yaml          Local application and PostgreSQL stack
 |-- .gitignore            Generated-file and secret exclusions
 `-- README.md
 ```
 
-Terraform provisions the AWS infrastructure. The current Ansible playbook
-installs and verifies Docker Engine and Docker Compose on both EC2 instances.
-Deployment of PostgreSQL, the application, and Nginx will be added separately.
+Terraform provisions the AWS infrastructure. Ansible deploys Docker Engine,
+PostgreSQL, the Flask application, Nginx, and the scheduled backup/restore
+workflow across the two EC2 instances.
 
 ## Architecture
 

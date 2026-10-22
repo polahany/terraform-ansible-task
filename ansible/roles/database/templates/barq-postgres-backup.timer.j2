@@ -1,0 +1,11 @@
+[Unit]
+Description=Run the BARQ PostgreSQL database backup daily
+
+[Timer]
+OnCalendar={{ postgres_backup_on_calendar }}
+Persistent=true
+RandomizedDelaySec={{ postgres_backup_randomized_delay_seconds }}
+Unit={{ postgres_backup_service_name }}
+
+[Install]
+WantedBy=timers.target

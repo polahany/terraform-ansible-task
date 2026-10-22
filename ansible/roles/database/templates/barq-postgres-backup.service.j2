@@ -1,0 +1,12 @@
+[Unit]
+Description=BARQ PostgreSQL database backup
+Requires=docker.service
+After=docker.service
+RequiresMountsFor={{ postgres_data_mount_path }}
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+UMask=0077
+ExecStart={{ postgres_backup_script_path }}
