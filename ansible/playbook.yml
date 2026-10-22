@@ -6,3 +6,16 @@
 
   roles:
     - role: docker
+
+- name: Configure database
+  hosts: db
+  become: true
+  roles:
+    - database
+
+- name: Deploy app and Nginx
+  hosts: app
+  become: true
+  roles:
+    - application
+    - nginx
