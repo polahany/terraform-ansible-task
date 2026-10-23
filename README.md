@@ -171,6 +171,17 @@ curl "http://${APP_IP}/health"
 curl "http://${APP_IP}/notes"
 ```
 
+### Cross-platform shell scripts
+
+The repository uses `.gitattributes` to enforce Linux LF line endings for shell
+scripts and Ansible shell templates. This is required because the scripts run
+on Linux hosts and containers; Windows CRLF line endings can make a valid
+script fail with a misleading `not found` error.
+
+For a complete rebuild, back up any required data, run `bash scripts/destroy.sh`,
+then uncomment the Terraform commands in `scripts/deploy.sh` and run
+`bash scripts/deploy.sh` again. Do not delete `terraform/terraform.tfstate`.
+
 For a repeatability check, run `bash scripts/deploy.sh` a second time and
 confirm that it completes successfully without unexpected infrastructure or
 configuration changes. The script owns the inventory and deployment sequence.

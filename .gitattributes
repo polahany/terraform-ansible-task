@@ -1,0 +1,2 @@
+ansible/roles/database/templates/*.sh.j2 text eol=lf
+*.sh text eol=lf

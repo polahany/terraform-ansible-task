@@ -42,7 +42,8 @@ ansible-inventory -i "$INVENTORY" --list >/dev/null
 ANSIBLE_ARGS=(-i "$INVENTORY" --private-key "$SSH_KEY")
 ansible all "${ANSIBLE_ARGS[@]}" -m wait_for_connection -a "timeout=300"
 ansible all "${ANSIBLE_ARGS[@]}" --become \
-  -m command -a "cloud-init status --wait"
+  -m shell \
+  -a 'cloud-init status --wait; rc=$?; if [ "$rc" -ne 0 ] && [ "$rc" -ne 2 ]; then exit "$rc"; fi'
 
 if [[ -f "$ROOT_DIR/ansible/requirements.yml" ]]; then
   ansible-galaxy collection install -r "$ROOT_DIR/ansible/requirements.yml"
